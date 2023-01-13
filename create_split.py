@@ -29,7 +29,7 @@ def split_collection():
     return hams, spams
 
 
-def roberta_classifier(spam, ham, batch_size=60, num_epochs=5000):
+def roberta_classifier(spam, ham, batch_size=16, num_epochs=60):
     # Set the device and set the seed value for reproducibility
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(42)
@@ -56,8 +56,8 @@ def roberta_classifier(spam, ham, batch_size=60, num_epochs=5000):
                                               return_tensors='pt')
 
     # Define the labels for each domain (0 for ham, 1 forspam)
-    ham_labels = torch.tensor([0] * len(ham)).cuda()[:10]
-    spam_labels = torch.tensor([1] * len(spam)).cuda()[:10]
+    ham_labels = torch.tensor([0] * len(ham)).cuda()
+    spam_labels = torch.tensor([1] * len(spam)).cuda()
 
     # Concatenate the inputs and labels for both domains
     inputs = torch.cat([ham_inputs['input_ids'], spam_inputs['input_ids']], dim=0).cuda()
@@ -132,16 +132,23 @@ def bart_ham(ham):
     if os.path.isfile('./bart_clean'):
         model = transformers.BartModel.from_pretrained('./bart_clean').cuda()
     else:
-        model = transformers.BartModel.from_pretrained('bart-base').cuda()
+        model = transformers.BartModel.from_pretrained("facebook/bart-base").cuda()
         model.save_pretrained('bart_clean')
 
+    tokenizer = transformers.RobertaTokenizer.from_pretrained('facebook/bart-base')
+
     # Create a dataset for the domain
-    dataset = transformers.BartTokenizer.from_pretrained('bart-base').batch_encode_plus(ham, pad_to_max_length=True,
-                                                                                        return_tensors='pt',
-                                                                                        truncation=True)
+    tokenized_data = tokenizer.batch_encode_plus(ham, pad_to_max_length=True,
+                                          return_tensors='pt',
+                                          truncation=True)
+
+    inputs = tokenized_data['input_ids'].cuda()
+    attention_mask = tokenized_data['attention_mask'].cuda()
+
+    dataset = TensorDataset(inputs, attention_mask)
 
     # Create the dataloader
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=24, shuffle=True)
 
     # Set up the optimizer and criterion
     optimizer = optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), weight_decay=0.1)
@@ -159,15 +166,19 @@ def bart_ham(ham):
 
     # Fine-tune the model
     model.train()
-
-    for epoch in tqdm(range(30000)):
+    print("Start fine tuning Bart model...")
+    for epoch in tqdm(range(30)):
         total_loss = 0
         for batch in dataloader:
             input_ids, attention_mask = batch
             input_ids, attention_mask = input_ids.to(device), attention_mask.to(device)
             with amp.autocast():
-                output = model(input_ids=input_ids, attention_mask=attention_mask, dropout=dropout)
-                loss = criterion(output[0], input_ids.argmax(dim=2))
+                # output = model(input_ids=input_ids, attention_mask=attention_mask, dropout=dropout)
+                output = model(input_ids=input_ids, attention_mask=attention_mask)
+                logits = output[0]
+                loss = criterion(logits.view(-1, logits.size(-1)), input_ids.view(-1))
+            if loss.device != device:
+                loss = loss.to(device)
             total_loss += loss.item()
             with amp.autocast():
                 loss.backward()
