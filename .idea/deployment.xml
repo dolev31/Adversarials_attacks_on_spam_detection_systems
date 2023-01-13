@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="student@dpml2022w-1002.westus.cloudapp.azure.com:22" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="student@dpml2022w-1002.westus.cloudapp.azure.com:22 (2)" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="idolevy@132.68.39.159:22 agent">
         <serverdata>
@@ -40,7 +40,14 @@
       <paths name="student@dpml2022w-1002.westus.cloudapp.azure.com:22">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/student/adversarials_attacks" local="$PROJECT_DIR$" />
+            <mapping deploy="/home/student/adversarial_attack" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="student@dpml2022w-1002.westus.cloudapp.azure.com:22 (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/student/adversarial_attack" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
