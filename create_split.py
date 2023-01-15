@@ -14,6 +14,8 @@ from tqdm import tqdm
 import random
 import heapq
 from collections import defaultdict
+from evaluate import load
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 SPAM_COLLECTION = './SMSSpamCollection.txt'
 TARGET_NAMES = ['Ham', 'Spam']
@@ -172,7 +174,7 @@ def bart_ham(ham):
     # Fine-tune the model
     model.train()
     print("Start fine tuning Bart model...")
-    for epoch in tqdm(range(30)):
+    for epoch in tqdm(range(2)):
         print(f"\n Currently at epoch {epoch}...")
         total_loss = 0
         for batch in dataloader:
@@ -372,13 +374,13 @@ def add_mask(classifier, lm, sentences, k, choosing_baseline=False, replacing_ba
     return fake_sentences
 
 
-def model_performance(sentences, fake_sentences, k):
+def model_performance(sentences, fake_sentences, k, cur_method='regular'):
     sentences_df = pd.DataFrame({"original_sentences": sentences, "adversarial_sentences": fake_sentences})
-    sentences_df.to_csv(f"sentences_{k}")
+    sentences_df.to_csv(f"{cur_method}_sentences_{k}.csv")
 
-    tokenizer = transformers.RobertaTokenizer.from_pretrained("roberta-base")
-    model = transformers.RobertaForSequenceClassification.from_pretrained(
-        'mariagrandury/roberta-base-finetuned-sms-spam-detection')
+    tokenizer = AutoTokenizer.from_pretrained("mariagrandury/roberta-base-finetuned-sms-spam-detection")
+    model = AutoModelForSequenceClassification.from_pretrained(
+        "mariagrandury/roberta-base-finetuned-sms-spam-detection")
     input_ids = torch.tensor(
         [tokenizer.encode(sentence, add_special_tokens=True, pad_to_max_length=True, max_length=200, truncation=True)
          for sentence in sentences])
@@ -416,26 +418,76 @@ def similar_performance(sentences, fake_sentences):
         # Compute embedding for both lists
         original_embedding = model.encode(original, convert_to_tensor=True)
         fake_embedding = model.encode(fake, convert_to_tensor=True)
-        similarity += util.pytorch_cos_sim(original_embedding, fake_embedding)
+        similarity += util.pytorch_cos_sim(original_embedding, fake_embedding).item()
         counter += 1
     print(f"Similarity measure: {similarity / counter}")
 
 
+def evaluate_pred(pred, refer):
+    bleu = load("bleu")
+    rouge = load('rouge')
+    google_bleu = load("google_bleu")
+    bertscore = load("bertscore")
+    score = dict()
+    score["bleu"] = bleu.compute(predictions=pred, references=refer)
+    score["rouge"] = rouge.compute(predictions=pred, references=refer)
+    score["google_bleu"] = google_bleu.compute(predictions=pred, references=refer)
+    # score["bertscore"] = bertscore.compute(predictions=pred, references=refer,lang="en")
+    return score
+
+
 if __name__ == '__main__':
     hams, spams = split_collection()
+
+    # Train RoBerta
     # roberta_model = roberta_classifier(spams, hams)
     # roberta_model.save_pretrained('roberta_trained')
 
     # Train Bart
-    bart_model = bart_ham(hams)
-    bart_model.save_pretrained('bart_trained')
+    # bart_model = bart_ham(hams)
+    # bart_model.save_pretrained('bart_trained')
 
     # Create adversarial attacks
-    # roberta_model = transformers.RobertaForSequenceClassification.from_pretrained('./roberta_clean')
+    roberta_model = transformers.RobertaForSequenceClassification.from_pretrained('./roberta_trained')
     # # roberta_model = transformers.RobertaModel.from_pretrained('./roberta_clean')
-    # bart_model = transformers.BartForConditionalGeneration.from_pretrained("./bart_clean")
-    # for k in range(1, 5):
-    #     fake_spams = add_mask(roberta_model, bart_model, spams, k)
-    #     print("Treshold: {k}")
-    #     model_performance(spams, fake_spams, k)
-    #     similar_performance(spams, fake_spams)
+    # bart_model = transformers.BartForConditionalGeneration.from_pretrained("./bart_trained")
+    bart_model = transformers.BartForConditionalGeneration.from_pretrained("facebook/bart-base", forced_bos_token_id=0)
+    choose_k = False
+    if choose_k:
+        for k in range(1, 10):
+            fake_spams = add_mask(roberta_model, bart_model, spams[:10], k)
+            print(f"Treshold: {k}")
+            model_performance(spams[:10], fake_spams, k)
+            similar_performance(spams[:10], fake_spams)
+            print(evaluate_pred(spams[:10], fake_spams))
+    test_exp = False
+    methods = ['choosing_baseline', 'replacing_baseline']
+    replacing_baseline, choosing_baseline = False, False
+    if test_exp:
+        for method in methods:
+            if method == 'choosing_baseline':
+                choosing_baseline = True
+            elif method == 'replacing_baseline':
+                replacing_baseline = True
+            fake_spams = add_mask(roberta_model, bart_model, spams[:10], k=9, choosing_baseline=choosing_baseline,
+                                  replacing_baseline=replacing_baseline)
+            print(f"Treshold: {9}")
+            model_performance(spams[:10], fake_spams, 9, cur_method=method)
+            similar_performance(spams[:10], fake_spams)
+            print(evaluate_pred(spams[:10], fake_spams))
+    ranodm_test = True
+    if ranodm_test == True:
+        spams = ['100% original medical boxes only NIS 500\n for orders \n https://wa.me/972504901774']
+        k = 3
+        # for method in methods:
+        #     if method == 'choosing_baseline':
+        #         choosing_baseline = True
+        #     elif method == 'replacing_baseline':
+        #         replacing_baseline = True
+        method = 'random_test'
+        fake_spams = add_mask(roberta_model, bart_model, spams[:10], k=k, choosing_baseline=choosing_baseline,
+                              replacing_baseline=replacing_baseline)
+        print(f"Treshold: {k}")
+        model_performance(spams[:10], fake_spams, k, cur_method=method)
+        similar_performance(spams[:10], fake_spams)
+        print(evaluate_pred(spams[:10], fake_spams))
