@@ -14,8 +14,9 @@ from tqdm import tqdm
 import random
 import heapq
 from collections import defaultdict
-from evaluate import load
+# from evaluate import load
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import time
 
 SPAM_COLLECTION = './SMSSpamCollection.txt'
 TARGET_NAMES = ['Ham', 'Spam']
@@ -47,10 +48,8 @@ def roberta_classifier(spam, ham, batch_size=16, num_epochs=50):
         model = transformers.RobertaForSequenceClassification.from_pretrained('roberta-base').cuda()
         model.save_pretrained('roberta_clean')
 
-    # Freezing RoBerta model weights, and training only the spam classifier
     for param in model.roberta.parameters():
         param.requires_grad = False
-
     # Tokenize the sentences using the RoBERTa tokenizer
     tokenizer = transformers.RobertaTokenizer.from_pretrained('roberta-base')
 
@@ -466,8 +465,6 @@ def evaluate_pred(pred, refer):
 
 
 if __name__ == '__main__':
-
-    # Process Dataset
     hams, spams = split_collection()
 
     # Train RoBerta
@@ -478,6 +475,8 @@ if __name__ == '__main__':
     # bart_model = bart_ham(hams)
     # bart_model.save_pretrained('bart_trained')
 
+    # Create adversarial attacks
+
     # Load trained Roberta model
     roberta_model = transformers.RobertaForSequenceClassification.from_pretrained('./roberta_trained')
     # # roberta_model = transformers.RobertaModel.from_pretrained('./roberta_clean')
@@ -486,23 +485,22 @@ if __name__ == '__main__':
     # bart_model = transformers.BartForConditionalGeneration.from_pretrained("./bart_trained")
     bart_model = transformers.BartForConditionalGeneration.from_pretrained("facebook/bart-base", forced_bos_token_id=0)
 
-    # Create adversarial attacks
     ####################################################################################################################
     # Choose hyper-parameters
-    choose_k = True
+    choose_k = False
     first_attention_layer = False
 
     if choose_k:
         for k in range(7, 8):
-            fake_spams = add_mask(roberta_model, bart_model, spams, k, first_attention_layer=first_attention_layer)
+            fake_spams = add_mask(roberta_model, bart_model, spams, k, first_attention_layer)
             print(f"Treshold: {k}")
             model_performance(spams, fake_spams, k)
             similar_performance(spams, fake_spams)
             print(evaluate_pred(spams, fake_spams))
 
     ####################################################################################################################
-    test_exp = False
-    methods = ['choosing_baseline', 'replacing_baseline']  # ['replacing_baseline']
+    test_exp = True
+    methods = ['our', 'choosing_baseline']  # ['replacing_baseline']
     replacing_baseline, choosing_baseline = False, False
     if test_exp:
         for method in methods:
@@ -510,12 +508,14 @@ if __name__ == '__main__':
                 choosing_baseline = True
             elif method == 'replacing_baseline':
                 replacing_baseline = True
-            fake_spams = add_mask(roberta_model, bart_model, spams, k=7, choosing_baseline=choosing_baseline,
+            t = time.time()
+            fake_spams = add_mask(roberta_model, bart_model, spams[:100], k=7, choosing_baseline=choosing_baseline,
                                   replacing_baseline=replacing_baseline)
-            print(f"Treshold: {7}")
-            model_performance(spams, fake_spams, 7, cur_method=method)
-            similar_performance(spams, fake_spams)
-            print(evaluate_pred(spams, fake_spams))
+            print(f"{method} time:" , time.time() - t)
+            # print(f"Treshold: {7}")
+            # model_performance(spams, fake_spams, 7, cur_method=method)
+            # similar_performance(spams, fake_spams)
+            # print(evaluate_pred(spams, fake_spams))
 
             # Shut down the baseline activation
             replacing_baseline, choosing_baseline = False, False
